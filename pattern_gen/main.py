@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
-"""把 pattern.png 转换为 LED 点阵数组，并输出可视化图片。
+"""把 config.json 中 pattern_files 列出的图片转换为 LED 点阵数组，并输出可视化图片。
 
 圆被 divide_num 条半径等分，每条半径上有 led_num 个 LED（含圆心）。
-数组大小为 divide_num * led_num * 3，排列为 [半径序号][LED 序号][RGB]，
+数组大小为 pattern_num * divide_num * led_num * 3，
+排列为 [图案序号][半径序号][LED 序号][RGB]，
+图案序号与 config.json 中 pattern_files 的顺序一致，
 从 x 轴开始逆时针填充，输出到 pattern.c。
 """
 import json
 import math
+import os
 import sys
 
 from PIL import Image, ImageDraw
@@ -15,13 +18,13 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")  # Windows 控制台默认 GBK，统一为 UTF-8
 
 CFG = "config.json"
-SRC_PNG = "pics/you.png"      # 输入图片
-OUT_PNG = "pattern_out.png"  # 可视化输出图片
+OUT_DIR = "pics"            # 预览图输出文件夹
 OUT_C = "../keil_project/Core/BUPT_RobotTeam_Libraries/hardware/fan/pattern.c"   # 点阵数组输出.c文件
 OUT_H = "../keil_project/Core/BUPT_RobotTeam_Libraries/hardware/fan/pattern.h"   # 点阵数组输出.h文件
 
 BLACK = (0, 0, 0)
 GRAY = (40, 40, 40)     # 无效区域颜色
+GRAY_TOL = 2            # 无效灰色各通道容差（±2）
 CENTER = (210, 210)     # 圆心（图片中心）
 RADIUS = 210            # 圆半径（直径 420）
 DOT_R = 1.5             # 可视化时每个 LED 点的半径
@@ -33,7 +36,7 @@ BRIGHT_FACTOR = 1.2  # 边缘处亮度系数（靠边缘的点稀疏，调亮）
 def load_config():
     with open(CFG, encoding="utf-8") as f:
         cfg = json.load(f)
-    return cfg["led_num"], cfg["divide_num"]
+    return cfg["led_num"], cfg["divide_num"], cfg["pattern_files"]
 
 
 def led_xy(i, j, led_num, divide_num):
@@ -77,22 +80,24 @@ def adjust_color(rgb, dist):
 
 
 def remove_invalid(img):
-    """把无效区域 (127, 127, 127) 灰改为全黑，避免其被采样进点阵。"""
+    """把无效区域灰色改为全黑，避免其被采样进点阵。
+
+    与 GRAY 各通道相差不超过 GRAY_TOL 的颜色都视为无效灰色。
+    """
     px = img.load()
     for y in range(img.height):
         for x in range(img.width):
-            if px[x, y] == GRAY:
+            r, g, b = px[x, y]
+            if (abs(r - GRAY[0]) <= GRAY_TOL and abs(g - GRAY[1]) <= GRAY_TOL
+                    and abs(b - GRAY[2]) <= GRAY_TOL):
                 px[x, y] = (0, 0, 0)
     return px
 
 
-def main():
-    led_num, divide_num = load_config()
-    img = Image.open(SRC_PNG).convert("RGB")
+def pattern_rows(img, led_num, divide_num):
+    """单张图片 -> 点阵数组 [半径序号][LED 序号] = (r, g, b)。"""
     px = remove_invalid(img)
-
-    # 采样生成点阵数组
-    rows = []  # [半径序号][LED 序号] = (r, g, b)
+    rows = []
     for i in range(divide_num):
         row = []
         for j in range(led_num):
@@ -101,8 +106,11 @@ def main():
             dist = math.hypot(x - CENTER[0], y - CENTER[1])
             row.append(adjust_color(color, dist))
         rows.append(row)
+    return rows
 
-    # 可视化转换结果
+
+def save_preview(img, rows, led_num, divide_num, src):
+    """把转换结果可视化，存到 pics/<原名>_pattern.png。"""
     base = Image.new("RGB", img.size, (0, 0, 0))
     draw = ImageDraw.Draw(base)
     for i, row in enumerate(rows):
@@ -112,15 +120,38 @@ def main():
     mask = Image.new("L", img.size, 0)
     ImageDraw.Draw(mask).ellipse((0, 0, img.width - 1, img.height - 1), fill=255)
     out = Image.composite(base, Image.new("RGB", img.size, BLACK), mask)
-    out.save(OUT_PNG)
+
+    stem = os.path.splitext(os.path.basename(src))[0]
+    out_png = os.path.join(OUT_DIR, stem + "_pattern.png")
+    out.save(out_png)
+    return out_png
+
+
+def main():
+    led_num, divide_num, pattern_files = load_config()
+    pattern_num = len(pattern_files)
+
+    # 按 json 中的顺序逐张转换
+    patterns = []  # [图案序号][半径序号][LED 序号] = (r, g, b)
+    previews = []
+    for src in pattern_files:
+        img = Image.open(src).convert("RGB")
+        rows = pattern_rows(img, led_num, divide_num)
+        patterns.append(rows)
+        previews.append(save_preview(img, rows, led_num, divide_num, src))
 
     # 输出C数组
     with open(OUT_C, "w", encoding="utf-8") as f:
         f.write('# include "pattern.h"\n\n')
-        f.write("const uint8_t pattern[DIVIDE_NUM][LED_NUM][3] = {\n")
-        for row in rows:
-            entries = ", ".join("{%d, %d, %d}" % c for c in row)
-            f.write("    {" + entries + "},\n")
+        f.write("const uint8_t pattern[PATTERN_NUM][DIVIDE_NUM][LED_NUM][3] = {\n")
+        for src, rows in zip(pattern_files, patterns):
+            stem = os.path.splitext(os.path.basename(src))[0]
+            f.write("\n    /* %s */\n" % stem)
+            f.write("    {\n")
+            for row in rows:
+                entries = ", ".join("{%d, %d, %d}" % c for c in row)
+                f.write("        {" + entries + "},\n")
+            f.write("    },\n")
         f.write("};\n")
 
     # 输出数组长度等信息到h文件
@@ -133,16 +164,19 @@ def main():
 
 # define LED_NUM {led_num}
 # define DIVIDE_NUM {divide_num}
+# define PATTERN_NUM {pattern_num}
 
-extern const uint8_t pattern[DIVIDE_NUM][LED_NUM][3];
+extern const uint8_t pattern[PATTERN_NUM][DIVIDE_NUM][LED_NUM][3];
 
 # endif
 """
         )
 
-    print(f"led_num={led_num}, divide_num={divide_num}, "
-          f"数组长度={divide_num * led_num * 3}")
-    print(f"已生成: {OUT_C}, {OUT_PNG}")
+    print(f"led_num={led_num}, divide_num={divide_num}, pattern_num={pattern_num}, "
+          f"数组长度={pattern_num * divide_num * led_num * 3}")
+    print(f"已生成: {OUT_C}, {OUT_H}")
+    for p in previews:
+        print(f"预览图: {p}")
 
 
 if __name__ == "__main__":

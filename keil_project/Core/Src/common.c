@@ -13,9 +13,6 @@
 
 # include "hardware/fan/fan.h"
 
-# define ACC_TIME 5000
-uint32_t start_tick = 0;
-
 void User_Init(void){
 	HAL_Delay(3000);	// 等待电机上电
 	
@@ -26,12 +23,11 @@ void User_Init(void){
 	
 	/* 初始化各类装置 */
 	Serial_TxDataf(2, "[INFO] Start hardwares...\r\n"); HAL_Delay(1);
-	Fan_Init();
+                        Fan_Init();
 	Serial_TxDataf(2, "[INFO] Hardwares init ok.\r\n");	HAL_Delay(1);
 
 	/* 初始化完成 */
 	Serial_TxDataf(2, "[INFO] All init ok, event loop start.\r\n"); HAL_Delay(1);
-	start_tick = HAL_GetTick();
 }
 
 void User_Tasks(void){
@@ -41,13 +37,6 @@ void User_Tasks(void){
 	CheckUartTxData();
 	M2006_Update();
 	Fan_Update();
-	
-	static uint32_t last_tick = 0;
-	if(HAL_GetTick() - start_tick <= ACC_TIME){
-		if(HAL_GetTick() - last_tick < 10)return;
-		last_tick = HAL_GetTick();
-		M2006_SetVel(2, (float)(HAL_GetTick() - start_tick) * 360.0 / (float)ACC_TIME);
-	}
 }
 
 uint8_t RxDataCallback(uint8_t index, uint8_t* buf, uint32_t len){

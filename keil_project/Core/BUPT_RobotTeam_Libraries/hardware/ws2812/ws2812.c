@@ -18,7 +18,7 @@ uint16_t MY_WS2812_GRB_BUF[MY_WS2812_BUF_LEN] = {0};
  * @note	确保写入的内容有效长度不小于MY_WS2812_BUF_LEN
  */
 void WS2812_SetBuf(uint16_t* content){
-	memcpy(MY_WS2812_GRB_BUF, content, MY_WS2812_MAX_NUM * 3 * 8);
+	memcpy(MY_WS2812_GRB_BUF, content, MY_WS2812_MAX_NUM * 3 * 8 * 2);
 }
 
 /**
