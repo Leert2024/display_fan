@@ -22,12 +22,12 @@ void User_Init(void){
 	CMD_Init(2);	// 初始化CLI(注册命令)
 	
 	/* 初始化各类装置 */
-	Serial_TxDataf(2, "[INFO] Start hardwares...\r\n"); HAL_Delay(1);
-                        Fan_Init();
-	Serial_TxDataf(2, "[INFO] Hardwares init ok.\r\n");	HAL_Delay(1);
+	Serial_TxDataf(2, "[INFO] Start hardwares...\r\n");
+    Fan_Init();
+	Serial_TxDataf(2, "[INFO] Hardwares init ok.\r\n");
 
 	/* 初始化完成 */
-	Serial_TxDataf(2, "[INFO] All init ok, event loop start.\r\n"); HAL_Delay(1);
+	Serial_TxDataf(2, "[INFO] All init ok, event loop start.\r\n");
 }
 
 void User_Tasks(void){
